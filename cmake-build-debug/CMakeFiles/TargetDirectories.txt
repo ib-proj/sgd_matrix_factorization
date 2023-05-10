@@ -1,0 +1,3 @@
+/Users/mangrove/CLionProjects/project/cmake-build-debug/CMakeFiles/project.dir
+/Users/mangrove/CLionProjects/project/cmake-build-debug/CMakeFiles/edit_cache.dir
+/Users/mangrove/CLionProjects/project/cmake-build-debug/CMakeFiles/rebuild_cache.dir
