@@ -8,12 +8,12 @@
 #include <atomic>
 
 
-const int num_factors = 10;
-const int num_iterations = 10000;
-const double learning_rate = 0.01;
+const int num_factors = 100;
+const int num_iterations = 1000000;
+const double learning_rate = 0.001;
 const double lambda_p = 0.1;
 const double lambda_q = 0.1;
-const int num_threads = std::thread::hardware_concurrency();
+const int num_threads = 2;
 
 double dot_product(const std::vector<double> &a, const std::vector<double> &b) {
     double result = 0.0;
@@ -50,6 +50,8 @@ void hogwild(const std::vector<std::tuple<int, int, double>> &ratings,
         }
 
     }
+    //std::this_thread::sleep_for(std::chrono::milliseconds(200));
+    std::cout << "Thread complete: " << std::endl;
 }
 
 
@@ -79,15 +81,18 @@ std::vector<std::tuple<int, int, double>> generate_synthetic_data(int num_users,
 std::atomic<bool> stop_monitoring(false);
 std::mutex rmse_data_mutex;
 
+std::atomic<bool> monitoring_started(false);
+
 void monitor_progress(const std::vector<std::tuple<int, int, double>> &ratings,
                       const std::vector<std::vector<double>> &P,
                       const std::vector<std::vector<double>> &Q,
                       std::chrono::time_point<std::chrono::high_resolution_clock> start_time,
                       std::vector<std::pair<long long, double>> &rmse_data) {
-    int monitoring_interval_ms = 10; // Choose the interval for monitoring progress (in milliseconds)
+    int monitoring_interval_ms = 0.01; // Choose the interval for monitoring progress (in milliseconds)
 
     while (!stop_monitoring.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(monitoring_interval_ms));
+        monitoring_started.store(true); // Indicate that monitoring has started
+        //std::this_thread::sleep_for(std::chrono::milliseconds(monitoring_interval_ms));
 
         double rmse = 0;
 
@@ -112,6 +117,9 @@ void monitor_progress(const std::vector<std::tuple<int, int, double>> &ratings,
         // Acquire lock to avoid data race
         std::lock_guard<std::mutex> lock(rmse_data_mutex);
         rmse_data.push_back(std::make_pair(time_since_start, rmse));
+        std::cout << "stop_monitoring: " << stop_monitoring << std::endl;
+        //std::this_thread::sleep_for(std::chrono::milliseconds(monitoring_interval_ms));
+
     }
 }
 
@@ -120,9 +128,9 @@ void monitor_progress(const std::vector<std::tuple<int, int, double>> &ratings,
 
 
 int main() {
-    int num_users = 1000;
-    int num_items = 1000;
-    double sparsity = 0.99;
+    int num_users = 2000;
+    int num_items = 2000;
+    double sparsity = 0.7;
 
     std::vector<std::tuple<int, int, double>> ratings = generate_synthetic_data(num_users, num_items, sparsity);
 
@@ -137,6 +145,11 @@ int main() {
     std::vector<std::pair<long long, double>> rmse_data;
 
     std::thread monitoring_thread(monitor_progress, std::ref(ratings), std::ref(P), std::ref(Q), start_time, std::ref(rmse_data));
+
+    // Wait for monitoring to start
+    while (!monitoring_started.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
 
     for (int i = 0; i < num_threads; ++i) {
         threads.emplace_back(hogwild, std::ref(ratings), std::ref(P), std::ref(Q));
