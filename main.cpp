@@ -50,7 +50,6 @@ void hogwild(const std::vector<std::tuple<int, int, double>> &ratings,
         }
 
     }
-    //std::this_thread::sleep_for(std::chrono::milliseconds(200));
     std::cout << "Thread complete: " << std::endl;
 }
 
@@ -88,7 +87,7 @@ void monitor_progress(const std::vector<std::tuple<int, int, double>> &ratings,
                       const std::vector<std::vector<double>> &Q,
                       std::chrono::time_point<std::chrono::high_resolution_clock> start_time,
                       std::vector<std::pair<long long, double>> &rmse_data) {
-    int monitoring_interval_ms = 0.01; // Choose the interval for monitoring progress (in milliseconds)
+    int monitoring_interval_ms = 10; // Choose the interval for monitoring progress (in milliseconds)
 
     while (!stop_monitoring.load()) {
         monitoring_started.store(true); // Indicate that monitoring has started
@@ -118,7 +117,7 @@ void monitor_progress(const std::vector<std::tuple<int, int, double>> &ratings,
         std::lock_guard<std::mutex> lock(rmse_data_mutex);
         rmse_data.push_back(std::make_pair(time_since_start, rmse));
         std::cout << "stop_monitoring: " << stop_monitoring << std::endl;
-        //std::this_thread::sleep_for(std::chrono::milliseconds(monitoring_interval_ms));
+        std::this_thread::sleep_for(std::chrono::milliseconds(monitoring_interval_ms));
 
     }
 }
