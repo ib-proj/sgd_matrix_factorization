@@ -1,181 +1,220 @@
 #include <iostream>
 #include <vector>
-#include <random>
 #include <thread>
-#include <tuple>
-#include <ctime>
+#include <numeric>
+#include <chrono>
+#include <random>
 #include <fstream>
-#include <atomic>
 
+using namespace std;
 
-const int num_factors = 100;
-const int num_iterations = 1000000;
-const double learning_rate = 0.001;
-const double lambda_p = 0.1;
-const double lambda_q = 0.1;
-const int num_threads = 2;
-
-double dot_product(const std::vector<double> &a, const std::vector<double> &b) {
-    double result = 0.0;
-    for (int i = 0; i < a.size(); ++i) {
-        result += a[i] * b[i];
+vector<vector<double>> block_diagonal_matrix(int n, int block_size, double min_val, double max_val) {
+    if (n % block_size != 0) {
+        cout << "Error: n must be divisible by block_size!" << endl;
+        return {};
+    }
+    int k = n / block_size;
+    vector<vector<double>> result(n, vector<double>(n, 0.0));
+    int row_offset = 0, col_offset = 0;
+    random_device rd;
+    mt19937 gen(rd());
+    uniform_real_distribution<double> dis(min_val, max_val);
+    for (int i = 0; i < k; i++) {
+        vector<vector<double>> block(block_size, vector<double>(block_size, 0.0));
+        for (int j = 0; j < block_size; j++) {
+            for (int l = 0; l < block_size; l++) {
+                block[j][l] = dis(gen);
+            }
+        }
+        for (int j = 0; j < block_size; j++) {
+            for (int l = 0; l < block_size; l++) {
+                result[row_offset + j][col_offset + l] = block[j][l];
+            }
+        }
+        row_offset += block_size;
+        col_offset += block_size;
     }
     return result;
 }
 
 
-void hogwild(const std::vector<std::tuple<int, int, double>> &ratings,
-             std::vector<std::vector<double>> &P,
-             std::vector<std::vector<double>> &Q) {
-    std::default_random_engine generator(std::time(nullptr));
-    std::uniform_int_distribution<int> distribution(0, ratings.size() - 1);
 
-
-    for (int i = 0; i < num_iterations; ++i) {
-        // randomly select an index
-        int idx = distribution(generator);
-        int user = std::get<0>(ratings[idx]); // Get the user corresponding to the randomly selected index
-        int item = std::get<1>(ratings[idx]); // Get the item corresponding to the randomly selected index
-        double rating = std::get<2>(ratings[idx]); // Get the rating corresponding to the randomly selected index
-
-        double prediction = dot_product(P[user], Q[item]);
-        double error = rating - prediction;
-
-        for (int k = 0; k < num_factors; ++k) {
-            double p_u = P[user][k];
-            double q_v = Q[item][k];
-
-            P[user][k] += learning_rate * (error * q_v - lambda_p * p_u);
-            Q[item][k] += learning_rate * (error * p_u - lambda_q * q_v);
+void initialize(vector<vector<double>>& U, vector<vector<double>>& V, int k) {
+    int n = U.size(), m = V.size();
+    for (int i = 0; i < n; i++) {
+        for (int r = 0; r < k; r++) {
+            U[i][r] = (double) rand() / RAND_MAX;
         }
-
     }
-    //std::this_thread::sleep_for(std::chrono::milliseconds(200));
-    std::cout << "Thread complete: " << std::endl;
-}
-
-
-std::vector<std::tuple<int, int, double>> generate_synthetic_data(int num_users, int num_items, double sparsity) {
-    int num_non_zero_entries = static_cast<int>((1.0 - sparsity) * num_users * num_items);
-
-    std::vector<std::tuple<int, int, double>> synthetic_data;
-    synthetic_data.reserve(num_non_zero_entries);
-
-    std::default_random_engine generator(std::time(nullptr));
-    std::uniform_int_distribution<int> user_distribution(0, num_users - 1);
-    std::uniform_int_distribution<int> item_distribution(0, num_items - 1);
-    std::uniform_real_distribution<double> rating_distribution(1.0, 5.0);
-
-    for (int i = 0; i < num_non_zero_entries; ++i) {
-        int user = user_distribution(generator);
-        int item = item_distribution(generator);
-        double rating = rating_distribution(generator);
-
-        synthetic_data.emplace_back(user, item, rating);
-    }
-
-    return synthetic_data;
-}
-
-
-std::atomic<bool> stop_monitoring(false);
-std::mutex rmse_data_mutex;
-
-std::atomic<bool> monitoring_started(false);
-
-void monitor_progress(const std::vector<std::tuple<int, int, double>> &ratings,
-                      const std::vector<std::vector<double>> &P,
-                      const std::vector<std::vector<double>> &Q,
-                      std::chrono::time_point<std::chrono::high_resolution_clock> start_time,
-                      std::vector<std::pair<long long, double>> &rmse_data) {
-    int monitoring_interval_ms = 0.01; // Choose the interval for monitoring progress (in milliseconds)
-
-    while (!stop_monitoring.load()) {
-        monitoring_started.store(true); // Indicate that monitoring has started
-        //std::this_thread::sleep_for(std::chrono::milliseconds(monitoring_interval_ms));
-
-        double rmse = 0;
-
-        for (const auto &entry : ratings) {
-            int user = std::get<0>(entry);
-            int item = std::get<1>(entry);
-            double rating = std::get<2>(entry);
-
-            double prediction = dot_product(P[user], Q[item]);
-            double error = rating - prediction;
-
-            rmse += error * error;
+    for (int j = 0; j < m; j++) {
+        for (int r = 0; r < k; r++) {
+            V[j][r] = (double) rand() / RAND_MAX;
         }
+    }
+}
+std::vector<std::vector<double>> transpose(const std::vector<std::vector<double>>& matrix) {
+    int n = matrix.size();
+    int m = matrix[0].size();
+    std::vector<std::vector<double>> transposed(m, std::vector<double>(n, 0));
+    for (int i = 0; i < n; i++) {
+        for (int j = 0; j < m; j++) {
+            transposed[j][i] = matrix[i][j];
+        }
+    }
+    return transposed;
+}
 
-        rmse = sqrt(rmse / ratings.size());
+double calculate_factorization_rmse(const std::vector<std::vector<double>>& A, const std::vector<std::vector<double>>& U, const std::vector<std::vector<double>>& V) {
+    int m = A.size();
+    int n = A[0].size();
 
-        auto current_time = std::chrono::high_resolution_clock::now();
-        auto time_since_start = std::chrono::duration_cast<std::chrono::milliseconds>(current_time - start_time).count();
+    double sum = 0.0;
+    int count = 0;
 
-        std::cout << "Time: " << time_since_start << " ms, RMSE: " << rmse << std::endl;
+    int r = U[0].size(); // number of columns in U
 
-        // Acquire lock to avoid data race
-        std::lock_guard<std::mutex> lock(rmse_data_mutex);
-        rmse_data.push_back(std::make_pair(time_since_start, rmse));
-        std::cout << "stop_monitoring: " << stop_monitoring << std::endl;
-        //std::this_thread::sleep_for(std::chrono::milliseconds(monitoring_interval_ms));
+    // check dimensions of U and V
+    if (U.size() != m || V.size() != r || V[0].size() != n) {
+        std::cout << "Error: invalid dimensions of U and/or V!" << std::endl;
+        std::cout << U.size() << r<<V.size()<<V[0].size()<<m<<n <<std::endl;
+    }
 
+    for (int i = 0; i < m; i++) {
+        for (int j = 0; j < n; j++) {
+            if (A[i][j] != 0) {
+                double A_hat_ij = 0.0;
+                for (int k = 0; k < U[i].size(); k++) {
+                    A_hat_ij += U[i][k] * V[k][j];
+                }
+                sum += pow(A[i][j] - A_hat_ij, 2);
+                count++;
+            }
+        }
+    }
+
+    if (count == 0) {
+        return 0;
+    } else {
+        return sqrt(sum / count);
     }
 }
 
 
+vector<vector<double>> matrix_product(const vector<vector<double>>& A, const vector<vector<double>>& B) {
+    int m = A.size();
+    int n = A[0].size();
+    int p = B[0].size();
 
+    vector<vector<double>> C(m, vector<double>(p, 0.0));
+
+    for (int i = 0; i < m; i++) {
+        for (int j = 0; j < p; j++) {
+            double sum = 0.0;
+            for (int k = 0; k < n; k++) {
+                sum += A[i][k] * B[k][j];
+            }
+            C[i][j] = sum;
+        }
+    }
+
+    return C;
+}
+
+vector<vector<double>> get_block(const vector<vector<double>>& D, int block_size, int block_num) {
+    vector<vector<double>> block(block_size, vector<double>(block_size, 0.0));
+    for (int i = 0; i < block_size; i++) {
+        for (int j = 0; j < block_size; j++) {
+            block[i][j] = D[block_num * block_size + i][block_num * block_size + j];
+        }
+    }
+    return block;
+}
+
+double get_error(int i, int j, const vector<vector<double>>& U, const vector<vector<double>>& V) {
+    int k = U[0].size();
+    double error = 0;
+    for (int r = 0; r < k; r++) {
+        error += U[i][r] * V[j][r];
+    }
+    return error;
+}
+
+
+
+void dsgd_threaded(int block_size, int num_threads, int num_iterations, double step_size, double lambda, const vector<vector<double>>& A, vector<vector<double>>& U, vector<vector<double>>& V) {
+    int n = A.size(), m = A[0].size(), k = U[0].size();
+    std::ofstream output_file("dsgd_results.csv");
+    auto start_time = std::chrono::high_resolution_clock::now();
+    output_file << "Iteration,RMSE,Time" << std::endl;
+    vector<thread> threads(num_threads);
+    for (int t = 0; t < num_threads; t++) {
+        int start_row = t * block_size, end_row = min(start_row + block_size, n);
+        threads[t] = thread([&](int start_row, int end_row) {
+            for (int iter = 0; iter < num_iterations; iter++) {
+                for (int i = start_row; i < end_row; i++) {
+                    for (int j = 0; j < m; j++) {
+                        if (A[i][j] != 0) {
+                            double error = A[i][j] - get_error(i, j, U, V);
+                            for (int r = 0; r < k; r++) {
+                                U[i][r] += step_size * (error * V[j][r] - lambda * U[i][r]);
+                                V[j][r] += step_size * (error * U[i][r] - lambda * V[j][r]);
+                            }
+                        }
+                    }
+                }
+                if (iter%50==0){
+                    auto end_time = std::chrono::high_resolution_clock::now();
+                    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+                    double rmse=calculate_factorization_rmse(A, U, transpose(V));
+                    output_file << iter << "," << rmse << "," << elapsed_time << std::endl;
+                }
+            }
+        }, start_row, end_row);
+    }
+
+    for (int t = 0; t < num_threads; t++) {
+        threads[t].join();
+    }
+}
+void print_matrix(vector<vector<double>>& matrix) {
+    for (int i = 0; i < matrix.size(); i++) {
+        for (int j = 0; j < matrix[i].size(); j++) {
+            cout << matrix[i][j] << " ";
+        }
+        cout << endl;
+    }
+    cout << endl;
+}
 
 
 int main() {
-    int num_users = 2000;
-    int num_items = 2000;
-    double sparsity = 0.7;
+    int num_iterations = 1000;
+    double step_size = 0.01, lambda = 0.01;
+    vector<thread> threads;
+    int n = 500, m = 500, k = 50;
+    double sparsity = 0.5;
 
-    std::vector<std::tuple<int, int, double>> ratings = generate_synthetic_data(num_users, num_items, sparsity);
+    int block_size = 10;
+    int num_threads = 10;
+    int min_val = 0;
+    int max_val = 1;
+    vector<vector<double>> A = block_diagonal_matrix(n, block_size, min_val, max_val);
+    vector<vector<double>> U(n, vector<double>(k)), V(m, vector<double>(k));
 
-    std::vector<std::vector<double>> P(num_users, std::vector<double>(num_factors, 0.1));
-    std::vector<std::vector<double>> Q(num_items, std::vector<double>(num_factors, 0.1));
-
-    std::vector<std::thread> threads;
-
-    // Record the start time
-    auto start_time = std::chrono::high_resolution_clock::now();
-
-    std::vector<std::pair<long long, double>> rmse_data;
-
-    std::thread monitoring_thread(monitor_progress, std::ref(ratings), std::ref(P), std::ref(Q), start_time, std::ref(rmse_data));
-
-    // Wait for monitoring to start
-    while (!monitoring_started.load()) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-    }
-
-    for (int i = 0; i < num_threads; ++i) {
-        threads.emplace_back(hogwild, std::ref(ratings), std::ref(P), std::ref(Q));
-    }
+    initialize(U, V, k);
 
 
-    for (auto &thread: threads) {
-        thread.join();
-    }
+    double rmse = calculate_factorization_rmse(A, U, transpose(V));
+    dsgd_threaded(block_size, num_threads, num_iterations, step_size, lambda, A, U, V);
+    vector<vector<double>> product = matrix_product(U, transpose(V));
+    // Calculate the RMSE between A and the factorization of A by U and V
+    std::cout << "RMSE = " << rmse << "\n";
+    double rmse_final = calculate_factorization_rmse(A, U, transpose(V));
 
-    stop_monitoring.store(true);
-    monitoring_thread.join();
+    // Print the RMSE to the console
+    std::cout << "RMSE FINAL = " << rmse_final << "\n";
+    
 
-    // Record the end time
-    auto end_time = std::chrono::high_resolution_clock::now();
-
-    // Calculate and print the elapsed time
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-    std::cout << "HogWild! algorithm took " << duration << " milliseconds to execute." << std::endl;
-
-
-    std::ofstream rmse_file("rmse_data.csv");
-    for (const auto &entry: rmse_data) {
-        rmse_file << entry.first << "," << entry.second << std::endl;
-    }
-    rmse_file.close();
 
     return 0;
 }
