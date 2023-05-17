@@ -5,6 +5,7 @@
 #include <chrono>
 #include <random>
 #include <fstream>
+#include <mutex>
 
 using namespace std;
 
@@ -176,6 +177,57 @@ void dsgd_threaded(int block_size, int num_threads, int num_iterations, double s
         threads[t].join();
     }
 }
+void hotwild_threaded(int num_threads, int num_iterations, double step_size, double lambda, const vector<vector<double>>& A, vector<vector<double>>& U, vector<vector<double>>& V) {
+    int n = A.size(), m = A[0].size(), k = U[0].size();
+    std::ofstream output_file("dsgd_results_hot.csv");
+    auto start_time = std::chrono::high_resolution_clock::now();
+    output_file << "Iteration,RMSE,Time" << std::endl;
+    vector<thread> threads(num_threads);
+    std::random_device rd;
+    std::mutex output_mutex;
+    std::mt19937 gen(rd());
+    std::vector<std::vector<double>> gradients(n, std::vector<double>(k));
+
+    for (int t = 0; t < num_threads; t++) {
+        threads[t] = thread([&]() {
+            std::random_device thread_rd;
+            std::mt19937 thread_gen(thread_rd());
+            std::uniform_int_distribution<int> row_dist(0, n - 1);
+
+            for (int iter = 0; iter < num_iterations; iter++) {
+                int i = row_dist(thread_gen);
+                std::uniform_int_distribution<int> col_dist(0, m - 1);
+                int j = col_dist(thread_gen);
+                double error = A[i][j] - get_error(i, j, U, V);
+
+                for (int r = 0; r < k; r++) {
+                    gradients[i][r] = error * V[j][r] - lambda * U[i][r];
+                    V[j][r] += step_size * (error * U[i][r] - lambda * V[j][r]);
+                }
+
+                for (int r = 0; r < k; r++) {
+                    U[i][r] += step_size * gradients[i][r];
+                }
+
+                if (iter % 100 == 0) {
+                    auto end_time = std::chrono::high_resolution_clock::now();
+                    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+                    double rmse = calculate_factorization_rmse(A, U, transpose(V));
+
+                    {
+                        std::lock_guard<std::mutex> lock(output_mutex);
+                        output_file << iter << "," << rmse << "," << elapsed_time << std::endl;
+                    }
+                }
+            }
+        });
+    }
+
+    for (int t = 0; t < num_threads; t++) {
+        threads[t].join();
+    }
+}
+
 void print_matrix(vector<vector<double>>& matrix) {
     for (int i = 0; i < matrix.size(); i++) {
         for (int j = 0; j < matrix[i].size(); j++) {
@@ -212,8 +264,20 @@ int main() {
     double rmse_final = calculate_factorization_rmse(A, U, transpose(V));
 
     // Print the RMSE to the console
-    std::cout << "RMSE FINAL = " << rmse_final << "\n";
-    
+    std::cout << "RMSE FINAL DSGD = " << rmse_final << "\n";
+
+    // Second method
+    initialize(U, V, k);
+    hotwild_threaded(num_threads, num_iterations, step_size, lambda, A, U, V);
+    product = matrix_product(U, transpose(V));
+    // Calculate the RMSE between A and the factorization of A by U and V
+    std::cout << "RMSE = " << rmse << "\n";
+    rmse_final = calculate_factorization_rmse(A, U, transpose(V));
+
+    // Print the RMSE to the console
+    std::cout << "RMSE FINAL hot = " << rmse_final << "\n";
+
+
 
 
     return 0;
