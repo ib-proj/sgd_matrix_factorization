@@ -24,7 +24,7 @@ jobs:
         run: cd build
 
       - name: Configure CMake
-        run: cmake ..
+        run: cmake .
 
       - name: Build Project
         run: make
