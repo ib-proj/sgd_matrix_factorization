@@ -1,13 +1,12 @@
 # Project
 
-This project contains multithreaded C++17 code. It calculates the root mean square error (RMSE) between a matrix and its factorization.
+This project contains our work for implemeting the paper A Fast Parallel Stochastic Gradient Method for Matrix Factorization in Shared Memory Systems, 2016 by W.-S. Chin, Y. Zhuang, Y.-C. J. and Lin., C.-J.
 
 # Prerequisites
-
+* Python
 * CMake 3.25 or higher.
 * A C++ compiler that supports C++17 (e.g., GCC 7 or higher).
 * A system with multithreading support (i.e., POSIX threads).
-
 
 # Getting Started
 
@@ -59,6 +58,9 @@ Contributors:
 ```
 python plot.py
 ```
+
+![alt text](https://github.com/https://github.com/ib-proj/sgd_matrix_factorization/tree/main/rmse_over_time.png?raw=true)
+
 
 # Clean code
 

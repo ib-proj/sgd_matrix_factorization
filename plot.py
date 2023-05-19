@@ -7,8 +7,6 @@ df_1 = pd.read_csv("results/dsgd_results.csv", on_bad_lines='skip')
 df_2 = pd.read_csv("results/dsgd_results_hot.csv", on_bad_lines='skip')
 df_3 = pd.read_csv("results/fsgd_results.csv", on_bad_lines='skip')
 
-
-
 result= pd.concat([df_1,df_2,df_3])
 
 result['Time']=pd.to_numeric(result['Time'], errors='coerce').astype('Int64')
@@ -26,4 +24,8 @@ plt.ylabel('RMSE')
 plt.title('RMSE over Time by Method')
 plt.legend()
 plt.grid(True)
+
+# Save the plot to a file instead of showing it
+plt.savefig('results/rmse_over_time.png')
+
 plt.show()
