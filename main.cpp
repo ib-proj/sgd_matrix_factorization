@@ -6,6 +6,7 @@
 #include <random>
 #include <fstream>
 #include <mutex>
+#include <algorithm>
 
 using namespace std;
 
@@ -139,19 +140,99 @@ double get_error(int i, int j, const vector<vector<double>>& U, const vector<vec
     }
     return error;
 }
+class BlockScheduler {
+public:
+    BlockScheduler(int num_blocks) : free_blocks(num_blocks), num_updates(num_blocks, 0), in_use(num_blocks, false) {
+        iota(free_blocks.begin(), free_blocks.end(), 0); // Initialize free_blocks with 0, 1, 2, ..., num_blocks - 1
+    }
+
+    int get_block() {
+        lock_guard<mutex> lock(scheduler_mutex);
+
+        // If no free blocks, return -1
+        if (all_of(in_use.begin(), in_use.end(), [](bool v) { return v; })) {
+            //cout << "No free blocks available\n";
+            return -1;
+        }
+
+        // Find the smallest number of updates
+        int min_updates = *min_element(num_updates.begin(), num_updates.end());
+
+        // Log the minimum number of updates
+        //cout << "Minimum number of updates: " << min_updates << "\n";
+
+        // Select all blocks with the smallest number of updates
+        vector<int> candidates;
+        for (int b : free_blocks) {
+            if (!in_use[b] && num_updates[b] == min_updates) {
+                candidates.push_back(b);
+            }
+        }
+
+        // If no candidates, there is a problem
+        if (candidates.empty()) {
+            //cout << "No blocks with minimum updates found\n";
+            return -1;
+        }
+
+        // Randomly select a block from the candidates
+        uniform_int_distribution<int> dist(0, candidates.size() - 1);
+        int selected_block = candidates[dist(gen)];
+
+        // Mark the block as in use
+        in_use[selected_block] = true;
+
+        return selected_block;
+    }
 
 
+    // This function is equivalent to the 'put job' procedure in Algorithm 5
+    void put_block(int block) {
+        lock_guard<mutex> lock(scheduler_mutex);
+        // Increase the block's update times by one
+        num_updates[block]++;
+        // Mark the block as not in use
+        in_use[block] = false;
+    }
 
-void dsgd_threaded(int block_size, int num_threads, int num_iterations, double step_size, double lambda, const vector<vector<double>>& A, vector<vector<double>>& U, vector<vector<double>>& V) {
+private:
+    mutex scheduler_mutex;
+    vector<int> free_blocks;
+    vector<int> num_updates;
+    vector<bool> in_use;
+    random_device rd;
+    mt19937 gen{rd()};
+};
+
+void fsgd_threaded(int block_size, int num_threads, int num_iterations, double step_size, double lambda, const vector<vector<double>>& A, vector<vector<double>>& U, vector<vector<double>>& V) {
     int n = A.size(), m = A[0].size(), k = U[0].size();
-    std::ofstream output_file("dsgd_results.csv");
+    std::ofstream output_file("fsgd_results.csv");
+    std::mutex output_mutex;
     auto start_time = std::chrono::high_resolution_clock::now();
-    output_file << "Iteration,RMSE,Time" << std::endl;
+    output_file << "Iteration,RMSE,Time,method" << std::endl;
     vector<thread> threads(num_threads);
+    int num_blocks = n / block_size;
+
+    // Create a scheduler
+    BlockScheduler scheduler(num_blocks);
+
     for (int t = 0; t < num_threads; t++) {
-        int start_row = t * block_size, end_row = min(start_row + block_size, n);
-        threads[t] = thread([&](int start_row, int end_row) {
+        threads[t] = thread([&](int thread_id) {
             for (int iter = 0; iter < num_iterations; iter++) {
+                // Get a block from the scheduler
+                if (iter % 100 == 0) {
+                    auto end_time = std::chrono::high_resolution_clock::now();
+                    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+                    double rmse = calculate_factorization_rmse(A, U, transpose(V));
+                    std::lock_guard<std::mutex> lock(output_mutex);
+                    output_file << iter << "," << rmse << "," << elapsed_time <<','<<"fsgd"<< std::endl;
+                }
+                int block_num = scheduler.get_block();
+                if (block_num == -1) continue;  // No free blocks
+
+                int start_row = block_num * block_size;
+                int end_row = min(start_row + block_size, n);
+
                 for (int i = start_row; i < end_row; i++) {
                     for (int j = 0; j < m; j++) {
                         if (A[i][j] != 0) {
@@ -163,41 +244,116 @@ void dsgd_threaded(int block_size, int num_threads, int num_iterations, double s
                         }
                     }
                 }
-                if (iter%50==0){
-                    auto end_time = std::chrono::high_resolution_clock::now();
-                    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-                    double rmse=calculate_factorization_rmse(A, U, transpose(V));
-                    output_file << iter << "," << rmse << "," << elapsed_time << std::endl;
-                }
+
+                // Return the block to the scheduler
+                scheduler.put_block(block_num);
+
+
             }
-        }, start_row, end_row);
+        }, t);
     }
 
     for (int t = 0; t < num_threads; t++) {
         threads[t].join();
     }
 }
-void hotwild_threaded(int num_threads, int num_iterations, double step_size, double lambda, const vector<vector<double>>& A, vector<vector<double>>& U, vector<vector<double>>& V) {
+
+
+
+
+
+
+// Performs distributed stochastic gradient descent (DSGD) with parallelization using threads.
+// Each thread processes a block of rows from the input matrix A and updates the factorization matrices U and V.
+void dsgd_threaded(int block_size, int num_threads, int num_iterations, double step_size, double lambda, const vector<vector<double>>& A, vector<vector<double>>& U, vector<vector<double>>& V) {
+    int n = A.size(), m = A[0].size(), k = U[0].size();
+    std::ofstream output_file("dsgd_results.csv");
+    std::mutex output_mutex;
+    auto start_time = std::chrono::high_resolution_clock::now();
+    output_file << "Iteration,RMSE,Time,method" << std::endl;
+
+    // Create a vector to hold the threads
+    vector<thread> threads(num_threads);
+    std::random_device rd;
+    std::mt19937 gen(rd());
+
+    for (int t = 0; t < num_threads; t++) {
+        int start_row = t * block_size, end_row = min(start_row + block_size, n);
+        threads[t] = thread([&](int start_row, int end_row) {
+            // Thread-specific iteration over the block of rows
+
+            for (int iter = 0; iter < num_iterations; iter++) {
+                // Check if 100 iterations have passed to output progress
+                if (iter % 100 == 0) {
+                    auto end_time = std::chrono::high_resolution_clock::now();
+                    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+                    double rmse = calculate_factorization_rmse(A, U, transpose(V));
+
+                    std::lock_guard<std::mutex> lock(output_mutex);
+                    output_file << iter << "," << rmse << "," << elapsed_time << ',' << "dsgd" << std::endl;
+                }
+
+                // Select a random row and column within the block
+                std::uniform_int_distribution<int> row_dist(start_row, end_row - 1);
+                std::uniform_int_distribution<int> col_dist(start_row, end_row - 1);
+                int i = row_dist(gen);
+                int j = col_dist(gen);
+
+                if (A[i][j] != 0) {
+                    double error = A[i][j] - get_error(i, j, U, V);
+                    for (int r = 0; r < k; r++) {
+                        U[i][r] += step_size * (error * V[j][r] - lambda * U[i][r]);
+                        V[j][r] += step_size * (error * U[i][r] - lambda * V[j][r]);
+                    }
+                }
+            }
+        }, start_row, end_row);
+    }
+
+    // Wait for all threads to finish
+    for (int t = 0; t < num_threads; t++) {
+        threads[t].join();
+    }
+}
+
+void hogwild_threaded(int num_threads, int num_iterations, double step_size, double lambda, const vector<vector<double>>& A, vector<vector<double>>& U, vector<vector<double>>& V) {
     int n = A.size(), m = A[0].size(), k = U[0].size();
     std::ofstream output_file("dsgd_results_hot.csv");
     auto start_time = std::chrono::high_resolution_clock::now();
-    output_file << "Iteration,RMSE,Time" << std::endl;
+    output_file << "Iteration,RMSE,Time,method" << std::endl;
+
+    // Create a vector to hold the threads
     vector<thread> threads(num_threads);
+
     std::random_device rd;
     std::mutex output_mutex;
     std::mt19937 gen(rd());
     std::vector<std::vector<double>> gradients(n, std::vector<double>(k));
 
     for (int t = 0; t < num_threads; t++) {
+        // Spawn a new thread
         threads[t] = thread([&]() {
             std::random_device thread_rd;
             std::mt19937 thread_gen(thread_rd());
             std::uniform_int_distribution<int> row_dist(0, n - 1);
 
-            for (int iter = 0; iter < num_iterations; iter++) {
+            for (int iter = 0; iter < num_iterations/num_threads; iter++) {
+                // Check if 100 iterations have passed to output progress
+                if (iter % 100 == 0) {
+                    auto end_time = std::chrono::high_resolution_clock::now();
+                    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
+                    double rmse = calculate_factorization_rmse(A, U, transpose(V));
+
+                    std::lock_guard<std::mutex> lock(output_mutex);
+                    output_file << iter << "," << rmse << "," << elapsed_time << ',' << "hogwild" << std::endl;
+                }
+
+                // Select a random row and column
                 int i = row_dist(thread_gen);
                 std::uniform_int_distribution<int> col_dist(0, m - 1);
                 int j = col_dist(thread_gen);
+
+                // Calculate the error and gradients
                 double error = A[i][j] - get_error(i, j, U, V);
 
                 for (int r = 0; r < k; r++) {
@@ -208,25 +364,16 @@ void hotwild_threaded(int num_threads, int num_iterations, double step_size, dou
                 for (int r = 0; r < k; r++) {
                     U[i][r] += step_size * gradients[i][r];
                 }
-
-                if (iter % 100 == 0) {
-                    auto end_time = std::chrono::high_resolution_clock::now();
-                    auto elapsed_time = std::chrono::duration_cast<std::chrono::milliseconds>(end_time - start_time).count();
-                    double rmse = calculate_factorization_rmse(A, U, transpose(V));
-
-                    {
-                        std::lock_guard<std::mutex> lock(output_mutex);
-                        output_file << iter << "," << rmse << "," << elapsed_time << std::endl;
-                    }
-                }
             }
         });
     }
 
+    // Wait for all threads to finish
     for (int t = 0; t < num_threads; t++) {
         threads[t].join();
     }
 }
+
 
 void print_matrix(vector<vector<double>>& matrix) {
     for (int i = 0; i < matrix.size(); i++) {
@@ -240,13 +387,13 @@ void print_matrix(vector<vector<double>>& matrix) {
 
 
 int main() {
-    int num_iterations = 1000;
+    int num_iterations = 10000;
     double step_size = 0.01, lambda = 0.01;
     vector<thread> threads;
-    int n = 500, m = 500, k = 50;
+    int n =500, m = 500, k = 50;
     double sparsity = 0.5;
 
-    int block_size = 10;
+    int block_size = 50;
     int num_threads = 10;
     int min_val = 0;
     int max_val = 1;
@@ -255,27 +402,46 @@ int main() {
 
     initialize(U, V, k);
 
+    // Calculate the RMSE between A and the factorization of A by U and V
 
     double rmse = calculate_factorization_rmse(A, U, transpose(V));
+    std::cout << "RMSE Initial = " << rmse << "\n";
     dsgd_threaded(block_size, num_threads, num_iterations, step_size, lambda, A, U, V);
-    vector<vector<double>> product = matrix_product(U, transpose(V));
-    // Calculate the RMSE between A and the factorization of A by U and V
-    std::cout << "RMSE = " << rmse << "\n";
     double rmse_final = calculate_factorization_rmse(A, U, transpose(V));
 
     // Print the RMSE to the console
     std::cout << "RMSE FINAL DSGD = " << rmse_final << "\n";
 
-    // Second method
+
+
+
+    // Second method hog wild
     initialize(U, V, k);
-    hotwild_threaded(num_threads, num_iterations, step_size, lambda, A, U, V);
-    product = matrix_product(U, transpose(V));
+    rmse = calculate_factorization_rmse(A, U, transpose(V));
     // Calculate the RMSE between A and the factorization of A by U and V
-    std::cout << "RMSE = " << rmse << "\n";
+    std::cout << "RMSE Initial= " << rmse << "\n";
+    hogwild_threaded(num_threads, num_iterations, step_size, lambda, A, U, V);
+
+
     rmse_final = calculate_factorization_rmse(A, U, transpose(V));
 
     // Print the RMSE to the console
-    std::cout << "RMSE FINAL hot = " << rmse_final << "\n";
+    std::cout << "RMSE FINAL hog wild = " << rmse_final << "\n";
+
+
+
+    // Third method
+    initialize(U, V, k);
+    rmse = calculate_factorization_rmse(A, U, transpose(V));
+    // Calculate the RMSE between A and the factorization of A by U and V
+    std::cout << "RMSE Initial = " << rmse << "\n";
+    fsgd_threaded(block_size, num_threads, num_iterations, step_size, lambda, A, U, V);
+
+
+    rmse_final = calculate_factorization_rmse(A, U, transpose(V));
+
+    // Print the RMSE to the console
+    std::cout << "RMSE FINAL fsgb = " << rmse_final << "\n";
 
 
 
