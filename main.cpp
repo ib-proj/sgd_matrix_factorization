@@ -206,7 +206,7 @@ private:
 
 void fsgd_threaded(int block_size, int num_threads, int num_iterations, double step_size, double lambda, const vector<vector<double>>& A, vector<vector<double>>& U, vector<vector<double>>& V) {
     int n = A.size(), m = A[0].size(), k = U[0].size();
-    std::ofstream output_file("fsgd_results.csv");
+    std::ofstream output_file("./results/fsgd_results.csv");
     std::mutex output_mutex;
     auto start_time = std::chrono::high_resolution_clock::now();
     output_file << "Iteration,RMSE,Time,method" << std::endl;
@@ -267,7 +267,7 @@ void fsgd_threaded(int block_size, int num_threads, int num_iterations, double s
 // Each thread processes a block of rows from the input matrix A and updates the factorization matrices U and V.
 void dsgd_threaded(int block_size, int num_threads, int num_iterations, double step_size, double lambda, const vector<vector<double>>& A, vector<vector<double>>& U, vector<vector<double>>& V) {
     int n = A.size(), m = A[0].size(), k = U[0].size();
-    std::ofstream output_file("dsgd_results.csv");
+    std::ofstream output_file("./results/dsgd_results.csv");
     std::mutex output_mutex;
     auto start_time = std::chrono::high_resolution_clock::now();
     output_file << "Iteration,RMSE,Time,method" << std::endl;
@@ -318,7 +318,7 @@ void dsgd_threaded(int block_size, int num_threads, int num_iterations, double s
 
 void hogwild_threaded(int num_threads, int num_iterations, double step_size, double lambda, const vector<vector<double>>& A, vector<vector<double>>& U, vector<vector<double>>& V) {
     int n = A.size(), m = A[0].size(), k = U[0].size();
-    std::ofstream output_file("dsgd_results_hot.csv");
+    std::ofstream output_file("./results/dsgd_results_hot.csv");
     auto start_time = std::chrono::high_resolution_clock::now();
     output_file << "Iteration,RMSE,Time,method" << std::endl;
 

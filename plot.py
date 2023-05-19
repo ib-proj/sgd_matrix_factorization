@@ -3,9 +3,9 @@ import pandas as pd
 
 # Load RMSE values from CSV file
 
-df_1 = pd.read_csv("cmake-build-debug/dsgd_results.csv", on_bad_lines='skip')
-df_2 = pd.read_csv("cmake-build-debug/dsgd_results_hot.csv", on_bad_lines='skip')
-df_3 = pd.read_csv("cmake-build-debug/fsgd_results.csv", on_bad_lines='skip')
+df_1 = pd.read_csv("results/dsgd_results.csv", on_bad_lines='skip')
+df_2 = pd.read_csv("results/dsgd_results_hot.csv", on_bad_lines='skip')
+df_3 = pd.read_csv("results/fsgd_results.csv", on_bad_lines='skip')
 
 
 
