@@ -59,7 +59,7 @@ Contributors:
 python plot.py
 ```
 
-![alt text](https://github.com/https://github.com/ib-proj/sgd_matrix_factorization/tree/main/rmse_over_time.png?raw=true)
+![alt text](https://github.com/ib-proj/sgd_matrix_factorization/blob/main/results/rmse_over_time.png?raw=true)
 
 
 # Clean code
