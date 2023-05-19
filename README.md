@@ -1,3 +1,5 @@
+[![Build status](https://github.com/ib-proj/sgd_matrix_factorization/actions/workflows/build.yaml/badge.svg)](https://github.com/ib-proj/sgd_matrix_factorization/actions)
+
 # Project
 
 This project contains our work for implemeting the paper A Fast Parallel Stochastic Gradient Method for Matrix Factorization in Shared Memory Systems, 2016 by W.-S. Chin, Y. Zhuang, Y.-C. J. and Lin., C.-J.
