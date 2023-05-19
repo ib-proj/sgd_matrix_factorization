@@ -45,7 +45,7 @@ __pycache__/
 *.py[cod]
 
 # Results
-results/
+results/*.csv
 
 # JetBrains IDE
 .idea/
